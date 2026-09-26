@@ -1,0 +1,13 @@
+{
+  // Cloudflare Pages 配置：前端静态资源 + _worker.js 高级模式后端（同域，无 CORS）
+  // 注意：Pages 不能自定义 DO 类，RoomDO 定义在独立 Worker "gomoku-server" 中，
+  // 这里通过 script_name 跨脚本绑定；客户端只访问 pages.dev，不触碰 workers.dev
+  "name": "gomoku",
+  "pages_build_output_dir": "public",
+  "compatibility_date": "2026-01-15",
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOM", "class_name": "RoomDO", "script_name": "gomoku-server" }
+    ]
+  }
+}

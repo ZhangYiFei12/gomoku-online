@@ -1,0 +1,25 @@
+# ============================================================================
+# Render Blueprint（一键部署配置）
+# 用法：把本仓库推送到 GitHub 后，在 Render Dashboard 选择
+#       "New → Blueprint"，Render 会自动读取本文件完成创建。
+# 文档：https://render.com/docs/blueprint-spec
+# ============================================================================
+
+services:
+  - type: web                    # Web Service（长驻 HTTP 服务）
+    name: gomoku-server          # 服务名，会出现在 URL：https://gomoku-server.onrender.com
+    runtime: node                # Node.js 运行时
+    plan: free                   # 免费套餐（15 分钟无流量会休眠，首次连接有 30~60s 冷启动）
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health     # 对应 server.js 中的健康检查路由
+    envVars:
+      # ★★★ 占位域名，部署完成后改成你的真实 Cloudflare Pages 域名 ★★★
+      # 多个域名用逗号分隔，例如：
+      #   https://gomoku.pages.dev,http://localhost:8787
+      - key: CORS_ORIGIN
+        value: https://gomoku.pages.dev
+      # 可选：限制最大房间数，保护免费实例内存（默认 200）
+      - key: MAX_ROOMS
+        value: "200"
+      # 注意：PORT 由 Render 自动注入，不要手动配置

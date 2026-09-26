@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>联机五子棋</title>
+<!--
+  ============================================================================
+  ★★★ 部署配置说明 ★★★
+  部署到 Cloudflare Pages 前，把下方 JS 中的 SERVER_URL 改成
+  Render 分配的真实域名，例如 "https://gomoku-server.onrender.com"。
+  本地开发时若用 node server.js 同源联调，可改为 ""（空字符串）。
+  ============================================================================
+-->
+<style>
+  /* ================= 暗色主题变量 ================= */
+  :root {
+    --bg: #14161c;
+    --panel: #1e222b;
+    --panel-2: #262b36;
+    --text: #e8eaf0;
+    --text-dim: #8b93a5;
+    --accent: #4f8cff;
+    --danger: #e05252;
+    --wood: #d4a96a;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 16px;
+  }
+  .app {
+    width: 100%;
+    max-width: 560px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  h1 { font-size: 20px; text-align: center; letter-spacing: 4px; color: var(--text); margin-top: 4px; }
+  h1 span { color: var(--accent); }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid #2c323f;
+    border-radius: var(--radius);
+    padding: 12px;
+  }
+
+  /* ================= 顶部：加入区 ================= */
+  .join-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .join-row input {
+    flex: 1; min-width: 0;
+    background: var(--panel-2);
+    border: 1px solid #363d4d;
+    border-radius: 8px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+    outline: none;
+  }
+  .join-row input:focus { border-color: var(--accent); }
+  .join-row input.room-input { flex: 0 0 130px; text-transform: uppercase; letter-spacing: 2px; }
+  button {
+    background: var(--accent);
+    border: none; border-radius: 8px;
+    color: #fff; font-size: 14px;
+    padding: 10px 18px;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+  button:hover { opacity: .88; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.secondary { background: var(--panel-2); border: 1px solid #363d4d; color: var(--text); }
+
+  .room-tag {
+    display: none;
+    align-items: center; gap: 8px;
+    margin-top: 10px; font-size: 13px; color: var(--text-dim);
+  }
+  .room-tag.show { display: flex; }
+  .room-tag b {
+    color: var(--accent); font-size: 18px; letter-spacing: 3px;
+    background: var(--panel-2); padding: 2px 10px; border-radius: 6px;
+    user-select: all; cursor: pointer;
+  }
+
+  /* ================= 状态栏 ================= */
+  .status-bar {
+    text-align: center;
+    font-size: 15px;
+    padding: 12px;
+    border-radius: var(--radius);
+    background: var(--panel);
+    border: 1px solid #2c323f;
+    transition: border-color .2s;
+  }
+  .status-bar.my-turn { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .status-bar.win  { border-color: #3fbf6b; color: #3fbf6b; font-weight: 600; }
+  .status-bar.lose { border-color: var(--danger); color: var(--danger); font-weight: 600; }
+
+  /* ================= 棋盘 ================= */
+  .board-wrap { position: relative; }
+  canvas#board {
+    width: 100%;
+    display: block;
+    border-radius: var(--radius);
+    box-shadow: 0 6px 24px rgba(0,0,0,.45);
+    touch-action: manipulation;
+  }
+  /* 连接中遮罩 */
+  .overlay {
+    position: absolute; inset: 0;
+    background: rgba(10,12,16,.82);
+    border-radius: var(--radius);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px;
+    color: var(--text); font-size: 15px;
+    z-index: 5;
+  }
+  .overlay.hidden { display: none; }
+  .spinner {
+    width: 34px; height: 34px;
+    border: 3px solid #3a4152;
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ================= 底部：图例 + 再来一局 ================= */
+  .bottom-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px;
+  }
+  .legend { display: flex; gap: 16px; align-items: center; font-size: 13px; color: var(--text-dim); }
+  .stone-dot {
+    width: 20px; height: 20px; border-radius: 50%;
+    display: inline-block; vertical-align: middle; margin-right: 6px;
+  }
+  .stone-dot.black { background: radial-gradient(circle at 35% 30%, #5a5a5a, #0a0a0a 70%); border: 1px solid #000; }
+  .stone-dot.white { background: radial-gradient(circle at 35% 30%, #ffffff, #c9c9c9 75%); border: 1px solid #9a9a9a; }
+  .players { font-size: 12px; color: var(--text-dim); text-align: center; }
+  .players b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>◆ 联机<span>五子棋</span></h1>
+
+  <!-- 顶部：加入区 -->
+  <div class="panel">
+    <div class="join-row">
+      <input id="nameInput" type="text" maxlength="16" placeholder="你的名字（可留空）">
+      <input id="roomInput" class="room-input" type="text" maxlength="6" placeholder="房间号" autocomplete="off">
+      <button id="joinBtn">加入 / 创建</button>
+    </div>
+    <div class="room-tag" id="roomTag">房间号：<b id="roomIdText" title="点击复制">------</b>（点击复制，发给对手）</div>
+  </div>
+
+  <!-- 中部：状态提示栏 -->
+  <div class="status-bar" id="statusBar">正在连接服务器…</div>
+
+  <!-- 主体：Canvas 棋盘 -->
+  <div class="board-wrap">
+    <canvas id="board"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="spinner"></div>
+      <div id="overlayText">正在连接服务器…（Render 免费版冷启动约 30~60 秒）</div>
+    </div>
+  </div>
+
+  <!-- 底部：图例 + 再来一局 -->
+  <div class="panel bottom-bar">
+    <div>
+      <div class="legend">
+        <span><i class="stone-dot black"></i>黑（先手）</span>
+        <span><i class="stone-dot white"></i>白</span>
+      </div>
+      <div class="players" id="playersText">—</div>
+    </div>
+    <button id="rematchBtn" class="secondary" style="display:none">再来一局</button>
+  </div>
+</div>
+
+<!-- Socket.io 客户端（CDN 版，避免前端找不到后端路径） -->
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script>
+"use strict";
+
+/* ============================================================================
+ * ★★★ 部署前必改：Render 分配的真实地址 ★★★
+ * 本地同源联调可设为 ""（走当前域名）。
+ * ========================================================================== */
+const SERVER_URL = "https://gomoku-server.onrender.com";
+
+/* ============================ 常量与状态 ================================== */
+const N = 15;                 // 15x15 棋盘
+const WOOD = "#d4a96a";
+const state = {
+  connected: false,
+  joined: false,
+  roomId: null,
+  myColor: null,              // "black" | "white"
+  board: new Array(N * N).fill(0), // 0空 1黑 2白
+  turn: 1,
+  status: "waiting",          // waiting | playing | finished
+  winner: null,
+  winLine: null,
+  names: {},
+  restartVotes: 0,
+  hover: null,                // 悬停格子 {x,y} 或 null
+};
+
+/* ============================ DOM 引用 ==================================== */
+const $ = (id) => document.getElementById(id);
+const canvas = $("board"), ctx = canvas.getContext("2d");
+const statusBar = $("statusBar"), overlay = $("overlay"), overlayText = $("overlayText");
+const roomTag = $("roomTag"), roomIdText = $("roomIdText"), playersText = $("playersText");
+const rematchBtn = $("rematchBtn");
+
+/* ============================================================================
+ * Socket.io 连接
+ * ========================================================================== */
+const socket = io(SERVER_URL, {
+  reconnectionDelayMax: 5000, // 指数退避重连，上限 5 秒
+  timeout: 30000,             // 冷启动握手等待放宽到 30 秒
+});
+
+socket.on("connect", () => {
+  state.connected = true;
+  overlay.classList.add("hidden");
+  setStatus("已连接服务器，输入房间号加入对战");
+});
+
+socket.on("disconnect", () => {
+  state.connected = false;
+  showOverlay("连接已断开，正在重连…");
+});
+
+socket.on("connect_error", () => {
+  showOverlay("正在连接服务器…（Render 免费版冷启动约 30~60 秒，请稍候）");
+});
+
+/* ============================================================================
+ * 服务端事件处理
+ * 后端统一推送 gameState 快照；为兼容也监听 state / joined / gameStart /
+ * gameOver 等别名 —— 它们都归入同一个 applyState 处理器。
+ * ========================================================================== */
+socket.on("gameState", applyState);
+socket.on("state", applyState);
+socket.on("joined", applyState);
+socket.on("gameStart", applyState);
+socket.on("gameOver", applyState);
+
+function applyState(s) {
+  if (!s) return;
+  state.joined = true;
+  if (s.roomId) state.roomId = s.roomId;
+  if (s.ownColor) state.myColor = s.ownColor;
+  if (s.board) state.board = s.board;
+  if (s.turn !== undefined) state.turn = s.turn;
+  if (s.status) state.status = s.status;
+  if (s.winner !== undefined) state.winner = s.winner;
+  if (s.winLine !== undefined) state.winLine = s.winLine;
+  if (s.names) state.names = s.names;
+  if (s.restartVotes !== undefined) state.restartVotes = s.restartVotes;
+
+  roomTag.classList.add("show");
+  roomIdText.textContent = state.roomId;
+  playersText.textContent =
+    `⚫ ${state.names.black || "等待中"}  ⚪ ${state.names.white || "等待中"}`;
+  rematchBtn.style.display = state.status === "finished" ? "" : "none";
+  rematchBtn.textContent = state.restartVotes >= 1 && state.status === "finished"
+    ? `再来一局（已同意 ${state.restartVotes}/2）` : "再来一局";
+
+  // 状态栏文案
+  const colorName = state.myColor === "black" ? "黑" : "白";
+  if (state.status === "waiting") {
+    setStatus(`房间 ${state.roomId} 已就位，等待对手加入…`);
+  } else if (state.status === "playing") {
+    if (state.turn === (state.myColor === "black" ? 1 : 2)) {
+      setMyTurn(`轮到你落子（你执${colorName}）`, true);
+    } else {
+      setStatus(`对方思考中…（你执${colorName}）`);
+    }
+  } else if (state.status === "finished") {
+    if (state.winner === 0) setStatus("平局！棋盘已下满", "win");
+    else if (state.winner === (state.myColor === "black" ? 1 : 2)) setStatus("🎉 你获胜了！", "win");
+    else setStatus("你输了，再接再厉！", "lose");
+  }
+  draw();
+}
+
+socket.on("roomError", (e) => {
+  setStatus(`⚠ ${e.message || "操作失败"}`);
+});
+
+socket.on("opponentLeft", (e) => {
+  setStatus(`⚠ ${e.message || "对手已离开"}`);
+});
+
+/* ============================ 交互：加入 ================================== */
+$("joinBtn").addEventListener("click", doJoin);
+$("roomInput").addEventListener("keydown", (e) => { if (e.key === "Enter") doJoin(); });
+
+function doJoin() {
+  if (!state.connected) { setStatus("尚未连接服务器，请稍候…"); return; }
+  const name = $("nameInput").value.trim();
+  const room = $("roomInput").value.trim().toUpperCase();
+  socket.emit("joinRoom", { roomId: room || undefined, name });
+}
+
+// 点击房间号复制
+roomIdText.addEventListener("click", () => {
+  navigator.clipboard?.writeText(state.roomId || "");
+  setStatus("房间号已复制，发给对手吧！");
+});
+
+/* ============================ 交互：落子 ================================== */
+canvas.addEventListener("click", (e) => {
+  if (state.status !== "playing") return;
+  const myColorNum = state.myColor === "black" ? 1 : 2;
+  if (state.turn !== myColorNum) return; // 不是我的回合
+  const cell = pixelToCell(e);
+  if (!cell) return;
+  if (state.board[cell.y * N + cell.x] !== 0) return; // 位置被占
+  socket.emit("placeStone", { x: cell.x, y: cell.y });
+});
+
+// 悬停半透明预览
+canvas.addEventListener("mousemove", (e) => {
+  const cell = pixelToCell(e);
+  const changed = JSON.stringify(cell) !== JSON.stringify(state.hover);
+  state.hover = cell;
+  if (changed) draw();
+});
+canvas.addEventListener("mouseleave", () => { state.hover = null; draw(); });
+
+/** 像素坐标 → 格子坐标（四舍五入到最近交叉点），出界返回 null */
+function pixelToCell(e) {
+  const rect = canvas.getBoundingClientRect();
+  const px = (e.clientX - rect.left) * (canvas.width / rect.width);
+  const py = (e.clientY - rect.top) * (canvas.height / rect.height);
+  const { cell, margin } = layout();
+  const x = Math.round((px - margin) / cell);
+  const y = Math.round((py - margin) / cell);
+  if (x < 0 || x >= N || y < 0 || y >= N) return null;
+  // 距交叉点太远（超过半格的 60%）视为误触
+  const dx = px - (margin + x * cell), dy = py - (margin + y * cell);
+  if (Math.hypot(dx, dy) > cell * 0.6) return null;
+  return { x, y };
+}
+
+/* ============================ 交互：再来一局 ============================== */
+rematchBtn.addEventListener("click", () => socket.emit("requestRestart", {}));
+
+/* ============================ 状态栏工具 ================================== */
+function setStatus(text, cls) {
+  statusBar.textContent = text;
+  statusBar.className = "status-bar" + (cls ? " " + cls : "");
+}
+function setMyTurn(text) {
+  statusBar.textContent = text;
+  statusBar.className = "status-bar my-turn";
+}
+function showOverlay(text) {
+  overlayText.textContent = text;
+  overlay.classList.remove("hidden");
+}
+
+/* ============================================================================
+ * Canvas 绘制
+ * ========================================================================== */
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+/** 棋盘布局：返回 CSS 像素下的格子尺寸与边距 */
+function layout() {
+  const size = canvas.clientWidth || 480;      // CSS 像素边长
+  const cell = size / (N + 1);                 // 15 条线 + 两侧各留 1 格边距
+  return { size, cell, margin: cell };
+}
+
+/** 主绘制入口（重置画布尺寸 + 全量重绘） */
+function draw() {
+  const { size, cell, margin } = layout();
+  // 按 DPR 放大画布，保证高分屏清晰
+  canvas.width = size * DPR;
+  canvas.height = size * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+  drawWood(size);
+  drawGrid(cell, margin);
+  drawStars(cell, margin);
+  drawAllStones(cell, margin);
+  drawHoverPreview(cell, margin);
+  drawWinLine(cell, margin);
+}
+
+/** 1. 木色背景 */
+function drawWood(size) {
+  const g = ctx.createLinearGradient(0, 0, size, size);
+  g.addColorStop(0, "#dcbb80");
+  g.addColorStop(.5, WOOD);
+  g.addColorStop(1, "#c89a58");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+}
+
+/** 2. 网格线 */
+function drawGrid(cell, margin) {
+  ctx.strokeStyle = "rgba(60,40,10,.55)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i < N; i++) {
+    const p = margin + i * cell;
+    ctx.beginPath(); ctx.moveTo(margin, p); ctx.lineTo(margin + (N - 1) * cell, p); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p, margin); ctx.lineTo(p, margin + (N - 1) * cell); ctx.stroke();
+  }
+}
+
+/** 3. 星位：天元 + 四角星 */
+function drawStars(cell, margin) {
+  const stars = [[3, 3], [3, 11], [11, 3], [11, 11], [7, 7]];
+  ctx.fillStyle = "rgba(50,32,8,.85)";
+  for (const [x, y] of stars) {
+    ctx.beginPath();
+    ctx.arc(margin + x * cell, margin + y * cell, cell * 0.11, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/** 4. 全部棋子：径向渐变立体感 + 投影 */
+function drawAllStones(cell, margin) {
+  const r = cell * 0.44;
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const v = state.board[y * N + x];
+      if (!v) continue;
+      drawStone(margin + x * cell, margin + y * cell, r, v === 1);
+    }
+  }
+}
+
+function drawStone(cx, cy, r, isBlack, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  // 投影
+  ctx.beginPath();
+  ctx.arc(cx + r * 0.12, cy + r * 0.18, r, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(0,0,0,.3)";
+  ctx.fill();
+  // 主体：高光偏左上的径向渐变
+  const g = ctx.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
+  if (isBlack) {
+    g.addColorStop(0, "#6b6b6b"); g.addColorStop(0.4, "#2a2a2a"); g.addColorStop(1, "#050505");
+  } else {
+    g.addColorStop(0, "#ffffff"); g.addColorStop(0.5, "#f0f0f0"); g.addColorStop(1, "#b8b8b8");
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.restore();
+}
+
+/** 5. 悬停预览：仅自己回合 + 空位时显示半透明棋子 */
+function drawHoverPreview(cell, margin) {
+  if (!state.hover || state.status !== "playing") return;
+  const myColorNum = state.myColor === "black" ? 1 : 2;
+  if (state.turn !== myColorNum) return;
+  const { x, y } = state.hover;
+  if (state.board[y * N + x] !== 0) return;
+  drawStone(margin + x * cell, margin + y * cell, cell * 0.44, myColorNum === 1, 0.45);
+}
+
+/** 6. 获胜五连：红色圆圈高亮 */
+function drawWinLine(cell, margin) {
+  if (!state.winLine || !state.winLine.length) return;
+  ctx.strokeStyle = "#e03434";
+  ctx.lineWidth = Math.max(2, cell * 0.08);
+  for (const p of state.winLine) {
+    ctx.beginPath();
+    ctx.arc(margin + p.x * cell, margin + p.y * cell, cell * 0.5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+}
+
+// 响应式：窗口尺寸变化时重绘
+window.addEventListener("resize", draw);
+
+// 首帧绘制（遮罩后面先露出棋盘轮廓）
+draw();
+</script>
+</body>
+</html>
